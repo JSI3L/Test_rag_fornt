@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chat · /ask</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0a0a0f;
+      --surface:  #12121a;
+      --border:   #1e1e2e;
+      --accent:   #7fffb0;
+      --accent2:  #00e5ff;
+      --text:     #e8e8f0;
+      --muted:    #5a5a7a;
+      --user-bg:  #1a1a2e;
+      --bot-bg:   #0f1a14;
+      --error:    #ff4f6a;
+      --radius:   14px;
+      --mono:     'IBM Plex Mono', monospace;
+      --display:  'Syne', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 14px;
+      overflow: hidden;
+    }
+
+    /* Noise overlay */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      max-width: 780px;
+      margin: 0 auto;
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 22px 28px 18px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; box-shadow: 0 0 10px var(--accent); }
+      50%      { opacity:.5; box-shadow: 0 0 4px var(--accent); }
+    }
+
+    .header-text h1 {
+      font-family: var(--display);
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -.02em;
+      color: var(--text);
+    }
+    .header-text span {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: .08em;
+    }
+
+    .endpoint-badge {
+      margin-left: auto;
+      background: #0d1a12;
+      border: 1px solid #1e3a28;
+      color: var(--accent);
+      font-size: 11px;
+      letter-spacing: .04em;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    /* ── MESSAGES ── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 28px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      scroll-behavior: smooth;
+    }
+
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Empty state */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--muted);
+      text-align: center;
+      animation: fadeIn .6s ease;
+    }
+    .empty-state svg { opacity: .3; }
+    .empty-state p { font-size: 13px; line-height: 1.6; max-width: 280px; }
+    .empty-state strong { color: var(--accent); font-weight: 500; }
+
+    /* Message bubble */
+    .msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 88%;
+      animation: slideUp .3s cubic-bezier(.22,1,.36,1);
+    }
+    @keyframes slideUp {
+      from { opacity:0; transform: translateY(10px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.bot  { align-self: flex-start; align-items: flex-start; }
+
+    .msg-label {
+      font-size: 10px;
+      letter-spacing: .1em;
+      color: var(--muted);
+      margin-bottom: 5px;
+      text-transform: uppercase;
+    }
+    .msg.user .msg-label { color: var(--accent2); }
+
+    .msg-bubble {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .msg.user .msg-bubble {
+      background: var(--user-bg);
+      border: 1px solid #2a2a4a;
+      color: #c8c8e8;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.bot .msg-bubble {
+      background: var(--bot-bg);
+      border: 1px solid #1a3020;
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+    }
+    .msg.error .msg-bubble {
+      background: #1a0a0e;
+      border-color: #3a1020;
+      color: var(--error);
+    }
+
+    /* Typing indicator */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 14px 18px;
+      background: var(--bot-bg);
+      border: 1px solid #1a3020;
+      border-radius: var(--radius);
+      border-bottom-left-radius: 4px;
+      width: fit-content;
+    }
+    .typing-indicator span {
+      width: 6px; height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: .2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: .4s; }
+    @keyframes bounce {
+      0%,80%,100% { transform: translateY(0); opacity:.4; }
+      40%          { transform: translateY(-6px); opacity:1; }
+    }
+
+    /* ── INPUT AREA ── */
+    .input-area {
+      padding: 16px 28px 24px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 10px 12px;
+      transition: border-color .2s;
+    }
+    .input-row:focus-within {
+      border-color: #2a4a36;
+      box-shadow: 0 0 0 2px #7fffb018;
+    }
+
+    textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      resize: none;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 22px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    textarea::placeholder { color: var(--muted); }
+    textarea::-webkit-scrollbar { width: 3px; }
+    textarea::-webkit-scrollbar-thumb { background: var(--border); }
+
+    .send-btn {
+      flex-shrink: 0;
+      width: 38px; height: 38px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #060f09;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s, transform .1s, opacity .2s;
+    }
+    .send-btn:hover:not(:disabled) { background: #a0ffcc; }
+    .send-btn:active:not(:disabled) { transform: scale(.93); }
+    .send-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+    .input-hint {
+      margin-top: 8px;
+      font-size: 10.5px;
+      color: var(--muted);
+      text-align: center;
+      letter-spacing: .03em;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+
+    /* Scrollbar for textarea */
+    textarea::-webkit-scrollbar { width: 3px; border-radius: 2px; }
+    textarea::-webkit-scrollbar-thumb { background: var(--border); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo-dot"></div>
+    <div class="header-text">
+      <h1>Ask Terminal</h1>
+      <span>FastAPI Chat Interface</span>
+    </div>
+    <div class="endpoint-badge">POST /ask</div>
+  </header>
+
+  <!-- MESSAGES -->
+  <div class="messages" id="messages">
+    <div class="empty-state" id="emptyState">
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="8" width="40" height="28" rx="6" stroke="#7fffb0" stroke-width="2"/>
+        <path d="M16 40h16" stroke="#7fffb0" stroke-width="2" stroke-linecap="round"/>
+        <path d="M24 36v4" stroke="#7fffb0" stroke-width="2" stroke-linecap="round"/>
+        <path d="M15 22h18M15 28h10" stroke="#7fffb0" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <p>Escribe tu primer mensaje.<br/>Se enviará vía <strong>POST /ask</strong> al servidor.</p>
+    </div>
+  </div>
+
+  <!-- INPUT AREA -->
+  <div class="input-area">
+    <div class="input-row">
+      <textarea
+        id="inputText"
+        placeholder="Escribe tu mensaje..."
+        rows="1"
+        autofocus
+      ></textarea>
+      <button class="send-btn" id="sendBtn" title="Enviar (Enter)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.5 1.5l13 6.5-13 6.5V9.5l9-1.5-9-1.5V1.5z"/>
+        </svg>
+      </button>
+    </div>
+    <p class="input-hint">Enter para enviar &nbsp;·&nbsp; Shift+Enter para nueva línea</p>
+  </div>
+
+</div>
+
+<script>
+  const API_URL = '/ask';   // ← cambia el host si es necesario
+
+  const messagesEl  = document.getElementById('messages');
+  const inputEl     = document.getElementById('inputText');
+  const sendBtn     = document.getElementById('sendBtn');
+  const emptyState  = document.getElementById('emptyState');
+
+  let isLoading = false;
+
+  // ── Auto-resize textarea
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+  });
+
+  // ── Enter key handler
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  sendBtn.addEventListener('click', sendMessage);
+
+  function setLoading(val) {
+    isLoading = val;
+    sendBtn.disabled = val;
+    inputEl.disabled = val;
+  }
+
+  function scrollBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function appendMessage(role, text) {
+    // Hide empty state
+    if (emptyState) emptyState.style.display = 'none';
+
+    const wrap = document.createElement('div');
+    wrap.className = `msg ${role}`;
+
+    const label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = role === 'user' ? 'Tú' : role === 'error' ? '⚠ Error' : 'Asistente';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.textContent = text;
+
+    wrap.appendChild(label);
+    wrap.appendChild(bubble);
+    messagesEl.appendChild(wrap);
+    scrollBottom();
+    return bubble;
+  }
+
+  function showTyping() {
+    if (emptyState) emptyState.style.display = 'none';
+    const wrap = document.createElement('div');
+    wrap.className = 'msg bot';
+    wrap.id = 'typingIndicator';
+
+    const label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = 'Asistente';
+
+    const indicator = document.createElement('div');
+    indicator.className = 'typing-indicator';
+    indicator.innerHTML = '<span></span><span></span><span></span>';
+
+    wrap.appendChild(label);
+    wrap.appendChild(indicator);
+    messagesEl.appendChild(wrap);
+    scrollBottom();
+  }
+
+  function removeTyping() {
+    const el = document.getElementById('typingIndicator');
+    if (el) el.remove();
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || isLoading) return;
+
+    // Clear input
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+
+    // Show user message
+    appendMessage('user', text);
+    setLoading(true);
+    showTyping();
+
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text })
+      });
+
+      removeTyping();
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'Error desconocido');
+        appendMessage('error', `HTTP ${res.status}: ${errText}`);
+      } else {
+        const data = await res.json();
+        // Adapta el campo según tu API (ej: data.answer, data.response, data.message...)
+        const reply = data.answer ?? data.response ?? data.message ?? data.output ?? JSON.stringify(data);
+        appendMessage('bot', reply);
+      }
+    } catch (err) {
+      removeTyping();
+      appendMessage('error', `No se pudo conectar con el servidor.\n${err.message}`);
+    } finally {
+      setLoading(false);
+      inputEl.focus();
+    }
+  }
+</script>
+</body>
+</html>
